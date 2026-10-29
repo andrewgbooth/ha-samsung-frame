@@ -259,9 +259,9 @@ def test_discovery_parsing_keeps_only_frames():
 
     frame = {"name": "Master Bedroom", "device": {
         "FrameTVSupport": "true", "modelName": "QE43LS03DAU",
-        "wifiMac": "20:15:DE:3D:B9:06"}}
+        "wifiMac": "AA:BB:CC:DD:EE:01"}}
     tv = parse_device_info("10.0.0.5", frame)
-    assert tv.mac == "20:15:de:3d:b9:06" and tv.name == "Master Bedroom"
+    assert tv.mac == "aa:bb:cc:dd:ee:01" and tv.name == "Master Bedroom"
     assert parse_device_info("10.0.0.6", {"device": {"FrameTVSupport": "false"}}) is None
     assert parse_device_info("10.0.0.7", {}) is None
     assert host_from_location("http://10.0.0.5:9197/dmr") == "10.0.0.5"
@@ -271,8 +271,8 @@ def test_discovery_parsing_keeps_only_frames():
 def test_subnet_candidates():
     from custom_components.samsung_frame.discovery import subnet_candidates
 
-    hosts = subnet_candidates("10.22.153.7")
-    assert len(hosts) == 253 and "10.22.153.7" not in hosts and "10.22.153.106" in hosts
+    hosts = subnet_candidates("192.168.1.7")
+    assert len(hosts) == 253 and "192.168.1.7" not in hosts and "192.168.1.106" in hosts
     assert subnet_candidates(None) == [] and subnet_candidates("127.0.0.1") == []
 
 
@@ -282,17 +282,17 @@ def test_smartthings_matching():
         pick_smartthings_entity,
     )
 
-    tv = StCandidate("media_player.frame_tv", frozenset({"20:15:DE:3D:B9:06"}),
+    tv = StCandidate("media_player.frame_tv", frozenset({"AA:BB:CC:DD:EE:01"}),
                      "QE43LS03DAUXXU", "Frame TV")
     other = StCandidate("media_player.soundbar", frozenset(), "HW-Q990D", "Soundbar")
     pick = pick_smartthings_entity
-    assert pick([other, tv], "20:15:de:3d:b9:06", None, None) == "media_player.frame_tv"
+    assert pick([other, tv], "aa:bb:cc:dd:ee:01", None, None) == "media_player.frame_tv"
     assert pick([other, tv], None, "QE43LS03DAU", None) == "media_player.frame_tv"
     assert pick([other, tv], None, None, "frame tv") == "media_player.frame_tv"
-    assert pick([other], "20:15:de:3d:b9:06", "QE43LS03DAU", None) is None
+    assert pick([other], "aa:bb:cc:dd:ee:01", "QE43LS03DAU", None) is None
     twin = StCandidate("media_player.frame_tv_2", frozenset(), "QE43LS03DAUXXU", "x")
     assert pick([tv, twin], None, "QE43LS03DAU", None) is None  # ambiguous
-    assert pick([tv, twin], "20:15:de:3d:b9:06", "QE43LS03DAU", None) == "media_player.frame_tv"
+    assert pick([tv, twin], "aa:bb:cc:dd:ee:01", "QE43LS03DAU", None) == "media_player.frame_tv"
     assert pick([tv], None, "QE43", None) is None  # too short to trust
 
 

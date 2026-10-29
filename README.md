@@ -1,98 +1,91 @@
-# Samsung Frame for Home Assistant
+<p align="center">
+  <img src="custom_components/samsung_frame/brand/icon@2x.png" alt="Samsung Frame" width="160">
+</p>
 
-A single Home Assistant `media_player` for your Samsung **The Frame** TV that gets the awkward bits right: proper power, Art Mode, and a picker for each HDMI input. No helpers, scripts or YAML needed.
+<h1 align="center">Samsung Frame for Home Assistant</h1>
 
-> **Status: early release.** The logic is unit tested, but it has not yet been verified on real hardware. See [Known limitations](#known-limitations) and please report what you find.
+<p align="center">
+  <a href="https://github.com/hacs/integration"><img alt="HACS Custom" src="https://img.shields.io/badge/HACS-Custom-orange.svg"></a>
+  <a href="https://github.com/andrewgbooth/ha-samsung-frame/releases"><img alt="Release" src="https://img.shields.io/github/v/release/andrewgbooth/ha-samsung-frame"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/andrewgbooth/ha-samsung-frame"></a>
+</p>
+
+One Home Assistant `media_player` for your Samsung **The Frame** TV that gets the awkward bits right: real power on and off, Art Mode, and a picker for each HDMI input. No helpers, scripts or YAML.
+
+> Not affiliated with or endorsed by Samsung. "Samsung" and "The Frame" are trademarks of their owner.
 
 ## Features
 
-- **One entity** (device class `tv`) with power and an input picker.
-- **Per-input control:** HDMI 1, HDMI 2, HDMI 3 and **Art Mode**, each with a name you choose.
-- **Optional TV (tuner) input**, off by default. Turn it on if you use the built-in tuner.
-- **Correct power behaviour:** turning off fully powers the display off (never drops into Art Mode). Turning on resumes the last input, including Art Mode.
-- **Responsive switching:** a new command cancels an unfinished one, and the result is double-checked in the background.
-- **Reliable switching:** it wakes the TV from Art Mode or standby first, then selects the input, and confirms the change instead of trusting an optimistic status.
-- **Stays in sync** with changes made using the physical remote, updating as soon as SmartThings reports a change.
-- **Instant feedback:** when you pick an input it shows straight away (marked `source_unconfirmed`) and reverts if the switch fails.
+- **One entity** (device class `tv`) with power and an input picker, linked to your SmartThings TV device.
+- **Your own input names:** HDMI 1, 2 and 3 plus **Art Mode**, each renameable.
+- **Optional TV (tuner) input,** off by default.
+- **Correct power:** turn off is a full power off (never Art Mode); turn on resumes your last input, including Art Mode.
+- **Responsive:** your choice shows immediately (marked `source_unconfirmed`), is confirmed in the background and corrected if the TV did not switch. A new command cancels an unfinished one.
+- **Instant Art Mode state,** pushed by the TV, with no polling.
+- **Stays in sync** with the physical remote.
 - **Works as a HomeKit TV accessory** (power and input picker).
-- **Automatic setup:** finds your Frame on the network and the matching SmartThings device.
-- **Everything is configured in the UI.** Rename inputs or toggle the TV input at any time; changes apply without a restart.
+- **Automatic setup:** finds your Frame and the matching SmartThings device.
+- **All configured in the UI.** Rename inputs or toggle TV at any time without a restart.
 
 ## Requirements
 
 - Home Assistant 2026.10 or newer.
-- A Samsung The Frame (2024 Tizen model tested: QE43LS03D) on the same network as Home Assistant.
-- The core **SmartThings** integration, signed in to your Samsung account, with your TV showing up as a media player. Setup checks this and stops with instructions if it is missing.
+- A Samsung The Frame (developed against a 2024 model, QE43LS03D) on the same network as Home Assistant.
+- The core **SmartThings** integration, signed in to your Samsung account, with your TV as a media player. Setup checks this and stops with instructions if it is missing.
 
 ## Installation
 
-### HACS (custom repository)
+### HACS (recommended)
 
 1. In HACS, open the menu and choose **Custom repositories**.
-2. Add `https://github.com/andrewgbooth/ha-samsung-frame` as an **Integration**.
+2. Add `https://github.com/andrewgbooth/ha-samsung-frame` with type **Integration**.
 3. Install **Samsung Frame** and restart Home Assistant.
 
 ### Manual
 
-1. Copy the `custom_components/samsung_frame` folder into your Home Assistant `config/custom_components/` folder.
-2. Restart Home Assistant.
+Copy `custom_components/samsung_frame` into your Home Assistant `config/custom_components/` folder and restart.
 
 ## Setup
 
-1. Go to **Settings > Devices & services > Add integration** and choose **Samsung Frame**. (If your TV is discovered automatically, you may see it under **Discovered** instead.)
-2. Pick your TV from the list of Frames found on your network. If none is found, choose **Enter manually** and type its IP address (the MAC address is optional but enables fast Wake-on-LAN).
-3. The matching SmartThings media player is selected automatically. There is no manual picker; if no unique match exists, setup stops and tells you why.
-4. Turn the TV on, then press **Allow** on the TV when it asks to let Home Assistant connect (once).
+1. Go to **Settings > Devices & services > Add integration** and choose **Samsung Frame** (or accept the TV under **Discovered**).
+2. Pick your TV from the Frames found on your network, or choose **Enter manually** and type its IP address. A MAC address is optional but enables fast Wake-on-LAN.
+3. The matching SmartThings media player is chosen automatically. If there is no unique match, setup stops and tells you why.
+4. Turn the TV on and press **Allow** on it when asked (once).
 5. Name your inputs and choose whether to enable the TV input.
 
-To change names or the TV toggle later, open the integration and choose **Configure**.
+Change names or the TV toggle later with **Configure** on the integration.
 
 ## HomeKit
 
-To show the TV properly in Apple Home, add it in the HomeKit Bridge in **accessory mode** (a separate paired accessory). The input picker follows the names you set here. After renaming inputs or toggling TV, you may need to reload the HomeKit accessory (this is not yet verified).
+Add the TV in the HomeKit Bridge in **accessory mode** so it appears as a TV in Apple Home. The input picker follows the names you set here. After renaming inputs or toggling TV you may need to reload the HomeKit accessory.
 
 ## How it works
 
-Where possible everything runs locally for speed.
-
 | Task | Method |
 |---|---|
-| Detect Art Mode | Local, pushed by the TV over a persistent connection (instant, no polling) |
-| Wake from Art Mode | Local power key |
+| Art Mode state | Local, pushed by the TV over a persistent connection |
+| Wake from Art Mode, send keys | Local remote channel |
 | Know if the TV is on | Local status check, plus SmartThings |
 | Wake from fully off | Wake-on-LAN (if you gave a MAC), then the power key, then SmartThings |
-| Choose a specific HDMI input | SmartThings (existing integration, no extra login) |
+| Choose an HDMI input | SmartThings (your existing integration, no extra login) |
 | Fully power off | SmartThings |
 
-As far as we know, this TV model cannot select a specific HDMI input or fully power off locally, which is why SmartThings is still involved for those two actions. The TV's power key only toggles between Art Mode and TV, so the integration never presses it blindly.
+To our knowledge this TV cannot select a specific HDMI input or fully power off locally, which is why SmartThings is still used for those two actions. The TV's power key only toggles between Art Mode and TV, so the integration never presses it blindly.
 
 ## Known limitations
 
-Unit tests pass, but these are **not yet verified on a real TV**:
-
-- Art Mode detection and key sending over the local connection.
-- Wake-on-LAN from the fully off state.
-- Whether SmartThings accepts the TV input when no tuner is connected.
-- Automatic discovery and SmartThings matching. If SmartThings does not expose your TV's MAC address, matching falls back to the model number, then the device name.
-- HDMI-CEC devices (such as an Apple TV) pulling the input back. A reverted switch is retried once, then reported as failed.
-- Switching timings are based on measured delays and may need tuning.
+- Tested by the author on one TV (2024 Frame). Other models and firmware may behave differently; please open an issue.
+- Wake-on-LAN from fully off and the TV (tuner) input are lightly tested.
+- HDMI-CEC devices (such as an Apple TV) can pull the input back. A reverted switch is retried once, then reported as failed.
+- SmartThings can be slow to report a changed input. Your choice shows immediately and is confirmed after about 16 seconds.
 
 ## Troubleshooting
 
-- **Setup stops saying SmartThings is missing or has no devices:** add or fix the core SmartThings integration, then start again.
-- **No TV found automatically:** choose **Enter manually**. Automatic scanning only covers the same /24 subnet as Home Assistant.
-- **Pairing fails:** make sure the TV is on and press **Allow** when prompted.
-- **Switching input does nothing:** the TV may be in Art Mode or slow to wake; check the Home Assistant log for warnings from `samsung_frame`.
-
-## Manual test checklist
-
-1. From fully off: select each HDMI input and Art Mode.
-2. From Art Mode: select each HDMI input.
-3. From each HDMI input: select Art Mode, turn off (must be fully off), then turn on (must resume the last input).
-4. Change input with the physical remote: the entity updates.
-5. HomeKit accessory: power, input picker and names.
-6. Rename an input in **Configure**: the new name appears everywhere without a restart.
-7. Enable the TV input in **Configure**: "TV" appears and can be selected; disable it again and it disappears.
+- **Setup says SmartThings is missing or has no devices:** add or fix the core SmartThings integration, then start again.
+- **No TV found automatically:** choose **Enter manually**. Automatic scanning covers the same /24 subnet as Home Assistant.
+- **Repeated Allow prompts for "HA Samsung Frame":** use the **Repair** notification to pair again, and check the TV's **Settings > General > External Device Manager > Device Connection Manager**.
+- **An Allow prompt for a different name** (for example "[Home Assistant]") comes from another integration, not this one.
+- **Art Mode or switching misbehaves:** enable debug logging for `custom_components.samsung_frame` and open an issue with the log.
 
 ## Development
 
@@ -102,7 +95,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-The state machine lives in `custom_components/samsung_frame/controller.py` and is pure Python, tested against a fake TV that mimics the quirks measured on a real Frame.
+The state machine is in `custom_components/samsung_frame/controller.py`. It is pure Python and tested against a fake TV that mimics quirks measured on a real Frame.
 
 ## Licence
 

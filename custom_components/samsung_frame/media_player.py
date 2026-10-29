@@ -11,13 +11,15 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import FrameConfigEntry
-from .const import CONF_HOST, CONF_MAC, DOMAIN
+from .const import CONF_HOST, CONF_MAC, CONF_SMARTTHINGS_ENTITY, DOMAIN
 
 _LAST_INPUT = "last_input"
 
@@ -27,7 +29,25 @@ async def async_setup_entry(
     entry: FrameConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities([FrameMediaPlayer(entry)])
+    async_add_entities(
+        [
+            FrameMediaPlayer(
+                entry,
+                _smartthings_device(hass, entry.data[CONF_SMARTTHINGS_ENTITY]),
+            )
+        ]
+    )
+
+
+def _smartthings_device(hass: HomeAssistant, entity_id: str) -> tuple[str, str] | None:
+    """The SmartThings device this TV is paired with, to link the two devices."""
+    entity = er.async_get(hass).async_get(entity_id)
+    if entity is None or entity.device_id is None:
+        return None
+    device = dr.async_get(hass).async_get(entity.device_id)
+    if device is None:
+        return None
+    return next((i for i in device.identifiers if i[0] == "smartthings"), None)
 
 
 class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
@@ -40,7 +60,9 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
         | MediaPlayerEntityFeature.SELECT_SOURCE
     )
 
-    def __init__(self, entry: FrameConfigEntry) -> None:
+    def __init__(
+        self, entry: FrameConfigEntry, smartthings_device: tuple[str, str] | None
+    ) -> None:
         super().__init__(entry.runtime_data.coordinator)
         self._ctl = entry.runtime_data.controller
         self._attr_unique_id = entry.unique_id or entry.entry_id
@@ -53,6 +75,7 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
                 {("mac", entry.data[CONF_MAC])} if entry.data.get(CONF_MAC) else set()
             ),
             configuration_url=f"http://{entry.data[CONF_HOST]}",
+            via_device=smartthings_device,
         )
 
     async def async_added_to_hass(self) -> None:
