@@ -64,13 +64,15 @@ class Backend(Protocol):
 
 @dataclass(frozen=True)
 class Timings:
-    poll: float = 2.0
+    poll: float = 1.0
     power_timeout: float = 30.0
-    cold_boot_settle: float = 8.0
+    ready_timeout: float = 8.0     # max wait for the TV to be usable after power on
+    ready_settle: float = 1.0
     art_timeout: float = 15.0
-    art_settle: float = 3.0
-    wake_settle: float = 4.0
-    verify_delay: float = 15.0
+    art_settle: float = 1.5
+    wake_settle: float = 2.0
+    input_settle: float = 2.0      # after sending an input command
+    verify_delay: float = 16.0     # the cloud source echo is optimistic; wait it out
     attempts: int = 2
     operation_timeout: float = 120.0
 
@@ -92,7 +94,7 @@ class FrameController:
         self._t = timings
         self._sleep = sleep
         self._monotonic = monotonic
-        self._lock = asyncio.Lock()
+        self._task: Optional[asyncio.Task] = None
         self._snap = Snapshot(False, False, None)
         self._source: Optional[str] = None
         self._last: Optional[TvInput] = None
@@ -129,7 +131,12 @@ class FrameController:
 
     @property
     def transitioning(self) -> bool:
-        return self._lock.locked()
+        return self._task is not None and not self._task.done()
+
+    async def async_wait_idle(self) -> None:
+        """Wait for any running command, including its background check."""
+        if self._task is not None:
+            await asyncio.wait({self._task})
 
     @property
     def last_input_name(self) -> Optional[str]:
@@ -141,7 +148,7 @@ class FrameController:
 
     async def async_refresh(self) -> None:
         """Poll the TV. Skipped mid-transition so we never report echoes."""
-        if self._lock.locked():
+        if self.transitioning:
             return
         await self._apply(await self._backend.snapshot())
 
@@ -163,30 +170,32 @@ class FrameController:
 
     # ----- commands --------------------------------------------------
 
+    async def _start(self, run) -> bool:
+        """Run a command as a task; a newer command cancels an older one.
+
+        Returns as soon as the command's foreground part is done. Slower
+        verification carries on in the background and corrects the state
+        if the TV did not do what it was told.
+        """
+        await self._cancel_running()
+        fg: asyncio.Future = asyncio.get_running_loop().create_future()
+        task = asyncio.ensure_future(run(fg))
+        self._task = task
+        await asyncio.wait({fg, task}, return_when=asyncio.FIRST_COMPLETED)
+        return bool(fg.done() and not fg.cancelled() and fg.result())
+
+    async def _cancel_running(self) -> None:
+        task = self._task
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.wait({task})
+            self._optimistic = None
+
     async def async_select_source(self, name: str) -> bool:
         target = self._by_name.get(name)
         if target is None:
             raise ValueError(f"Unknown source: {name}")
-        async with self._lock:
-            # Show the request straight away, flagged as unconfirmed; it is
-            # replaced by the verified state when the switch finishes.
-            self._optimistic = target.name
-            self._notify()
-            try:
-                ok = await asyncio.wait_for(
-                    self._switch(target), self._t.operation_timeout
-                )
-            except Exception:  # noqa: BLE001 - quiet failure by design
-                _LOGGER.warning("Switching to %s failed", name, exc_info=True)
-                ok = False
-            await self._resync()
-            self._optimistic = None
-            self._notify()
-            if ok:
-                self._last = target
-            else:
-                _LOGGER.warning("Could not reach %s; reporting actual state", name)
-            return ok
+        return await self._start(lambda fg: self._run_select(target, fg))
 
     async def async_turn_on(self) -> bool:
         target = self._last or (self._inputs[0] if self._inputs else None)
@@ -195,7 +204,43 @@ class FrameController:
         return await self.async_select_source(target.name)
 
     async def async_turn_off(self) -> bool:
-        async with self._lock:
+        return await self._start(self._run_off)
+
+    async def _run_select(self, target: TvInput, fg: asyncio.Future) -> None:
+        previous = self._last
+        # Show the request straight away, flagged as unconfirmed; it is
+        # replaced by the verified state when the checks finish.
+        self._optimistic = target.name
+        self._notify()
+        ok = False
+        try:
+            try:
+                ok = await asyncio.wait_for(
+                    self._switch(target), self._t.operation_timeout
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - quiet failure by design
+                _LOGGER.warning("Switching to %s failed", target.name, exc_info=True)
+            if ok:
+                self._last = target
+            _resolve(fg, ok)
+            if ok and target.kind != KIND_ART:
+                ok = await self._verify(target)
+                if not ok:
+                    self._last = previous
+        except asyncio.CancelledError:
+            _resolve(fg, False)
+            raise
+        if not ok:
+            _LOGGER.warning("Could not reach %s; reporting actual state", target.name)
+        self._optimistic = None
+        await self._resync()
+        self._notify()
+
+    async def _run_off(self, fg: asyncio.Future) -> None:
+        ok = False
+        try:
             try:
                 await self._backend.power_off()
                 snap = await asyncio.wait_for(
@@ -205,11 +250,16 @@ class FrameController:
                 ok = snap is not None
                 if not ok:
                     _LOGGER.warning("TV did not power off")
+            except asyncio.CancelledError:
+                raise
             except Exception:  # noqa: BLE001
                 _LOGGER.warning("Power off failed", exc_info=True)
-                ok = False
-            await self._resync()
-            return ok
+            _resolve(fg, ok)
+        except asyncio.CancelledError:
+            _resolve(fg, False)
+            raise
+        await self._resync()
+        self._notify()
 
     # ----- internals -------------------------------------------------
 
@@ -239,7 +289,9 @@ class FrameController:
             if woke is None:
                 _LOGGER.warning("TV did not power on")
                 return False
-            await self._sleep(self._t.cold_boot_settle)
+            # Ready = Art mode state known (art channel up). Best effort.
+            await self._wait(lambda s: s.art is not None, self._t.ready_timeout)
+            await self._sleep(self._t.ready_settle)
             snap = await self._backend.snapshot(refresh=True)
         if target.kind == KIND_ART:
             return await self._to_art(snap)
@@ -270,17 +322,41 @@ class FrameController:
         return True
 
     async def _to_input(self, target: TvInput, snap: Snapshot) -> bool:
+        """Foreground: wake if needed and send the input command, once."""
         if snap.art and not await self._wake_from_art():
             return False
-        for _ in range(self._t.attempts):
+        await self._backend.select_input(target.key)
+        await self._sleep(self._t.input_settle)
+        snap = await self._backend.snapshot(refresh=True)
+        if snap.art:  # still (or back) in Art mode: the command was ignored
+            if not await self._wake_from_art():
+                return False
             await self._backend.select_input(target.key)
-            # The cloud source echo is optimistic; wait out the poll window.
+            await self._sleep(self._t.input_settle)
+        return True
+
+    async def _verify(self, target: TvInput) -> bool:
+        """Background: confirm after the cloud poll window.
+
+        Resends only if the TV clearly reverted to a different known input
+        (e.g. HDMI-CEC pulled it back). Resending to a TV that is merely
+        slow just pops the source banner, so unknown state is not retried.
+        """
+        for attempt in range(self._t.attempts):
             await self._sleep(self._t.verify_delay)
             snap = await self._backend.snapshot(refresh=True)
-            if snap.art:
-                if not await self._wake_from_art():
-                    return False
-                continue
-            if snap.source == target.key:
+            if snap.art or not snap.power:
+                return False
+            if snap.source == target.key or snap.source is None:
                 return True
+            if attempt + 1 == self._t.attempts:
+                break  # no resend after the last check: its echo would lie
+            _LOGGER.debug("TV is on %s, wanted %s; resending", snap.source, target.key)
+            await self._backend.select_input(target.key)
+            await self._sleep(self._t.input_settle)
         return False
+
+
+def _resolve(fg: asyncio.Future, value: bool) -> None:
+    if not fg.done():
+        fg.set_result(value)

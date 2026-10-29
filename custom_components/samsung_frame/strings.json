@@ -10,7 +10,7 @@
       },
       "pair": {
         "title": "Pair with the TV",
-        "description": "Turn the TV on, then select Submit and press Allow on the TV when prompted. You may be asked twice."
+        "description": "Turn the TV on, then select Submit and press Allow on the TV when prompted."
       },
       "inputs": {
         "title": "Inputs",
@@ -38,7 +38,7 @@
       },
       "reauth_confirm": {
         "title": "Pair with the TV again",
-        "description": "The TV no longer accepts Home Assistant's saved permission. Turn the TV on, select Submit, and press Allow on the TV. You may need to press Allow twice."
+        "description": "The TV no longer accepts Home Assistant's saved permission. Turn the TV on, select Submit, and press Allow on the TV."
       }
     },
     "error": {

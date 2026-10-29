@@ -180,7 +180,8 @@ def test_failed_switch_does_not_lie_about_source():
     async def go():
         tv, ctl = make(dict(source="hdmi3", cec_revert=True))
         await ctl.async_refresh()
-        assert not await ctl.async_select_source("Kodi")
+        assert await ctl.async_select_source("Kodi")  # command accepted...
+        await ctl.async_wait_idle()                    # ...background check fails
         assert ctl.source == "Apple TV"
         assert ctl.last_input_name == "Apple TV"
     run(go())
@@ -301,7 +302,8 @@ def test_optimistic_source_is_flagged_and_reverts_on_failure():
         await ctl.async_refresh()
         events = []
         ctl.add_listener(lambda: events.append((ctl.source, ctl.source_unconfirmed)))
-        assert not await ctl.async_select_source("Kodi")
+        assert await ctl.async_select_source("Kodi")
+        await ctl.async_wait_idle()
         assert events[0] == ("Kodi", True)          # shown immediately
         assert events[-1] == ("Apple TV", False)    # reverted to reality
         assert ctl.source == "Apple TV" and not ctl.source_unconfirmed
@@ -315,4 +317,80 @@ def test_turn_on_from_off_shows_on_while_waking():
         ctl.add_listener(lambda: seen.append(ctl.is_on))
         await ctl.async_turn_on()
         assert seen[0] is True and ctl.is_on
+    run(go())
+
+
+def test_cec_revert_resends_once_then_gives_up():
+    async def go():
+        tv, ctl = make(dict(source="hdmi3", cec_revert=True))
+        sent = []
+        orig = tv.select_input
+
+        async def spy(key):
+            sent.append(key)
+            await orig(key)
+
+        tv.select_input = spy
+        await ctl.async_refresh()
+        await ctl.async_select_source("Kodi")
+        await ctl.async_wait_idle()
+        assert sent == ["hdmi2"] * 2  # initial + a single resend
+    run(go())
+
+
+def test_unknown_source_is_not_resent():
+    """A slow/unknown cloud state must not trigger a banner-popping resend."""
+    async def go():
+        tv, ctl = make(dict(source=None))
+        sent = []
+        orig = tv.select_input
+
+        async def spy(key):
+            sent.append(key)
+            await orig(key)
+
+        tv.select_input = spy
+        await ctl.async_select_source("Kodi")
+        await ctl.async_wait_idle()
+        assert sent == ["hdmi2"]
+    run(go())
+
+
+def test_new_command_cancels_background_check():
+    async def go():
+        clock = Clock()
+        tv = FakeTV(clock, source="hdmi3")
+        stuck = asyncio.Event()  # never set: the first check hangs for good
+
+        async def sleep(s):
+            clock.now += s
+            if s == Timings().verify_delay and not clock_state["second"]:
+                await stuck.wait()
+
+        clock_state = {"second": False}
+        ctl = FrameController(
+            tv, build_inputs(NAMES), timings=Timings(),
+            sleep=sleep, monotonic=clock.monotonic,
+        )
+        assert await ctl.async_select_source("Kodi")   # returns; check hangs
+        assert ctl.transitioning
+        clock_state["second"] = True
+        assert await ctl.async_select_source("CCTV")   # must not wait for it
+        await ctl.async_wait_idle()
+        assert tv.source == "hdmi1" and ctl.source == "CCTV"
+    asyncio.run(asyncio.wait_for(go(), 5))
+
+
+def test_turn_off_cancels_pending_switch():
+    async def go():
+        clock = Clock()
+        tv = FakeTV(clock, source="hdmi3")
+        ctl = FrameController(
+            tv, build_inputs(NAMES), timings=Timings(),
+            sleep=clock.sleep, monotonic=clock.monotonic,
+        )
+        await ctl.async_select_source("Kodi")
+        assert await ctl.async_turn_off()
+        await ctl.async_wait_idle()
+        assert not tv.power and not ctl.is_on and not ctl.source_unconfirmed
     run(go())

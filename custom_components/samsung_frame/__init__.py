@@ -12,9 +12,8 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .backend import HABackend, Tokens
+from .backend import HABackend
 from .const import (
-    CONF_ART_TOKEN,
     CONF_HOST,
     CONF_MAC,
     CONF_SMARTTHINGS_ENTITY,
@@ -39,23 +38,22 @@ type FrameConfigEntry = ConfigEntry[RuntimeData]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> bool:
-    def save_tokens(tokens: Tokens) -> None:
+    def save_token(token: str) -> None:
         hass.config_entries.async_update_entry(
-            entry,
-            data={**entry.data, CONF_TOKEN: tokens.remote, CONF_ART_TOKEN: tokens.art},
+            entry, data={**entry.data, CONF_TOKEN: token}
         )
+
+    changed: list = []  # filled once the coordinator exists
 
     backend = HABackend(
         hass,
         host=entry.data[CONF_HOST],
-        tokens=Tokens(
-            remote=entry.data[CONF_TOKEN],
-            art=entry.data.get(CONF_ART_TOKEN) or entry.data[CONF_TOKEN],
-        ),
+        token=entry.data[CONF_TOKEN],
         smartthings_entity=entry.data[CONF_SMARTTHINGS_ENTITY],
         mac=entry.data.get(CONF_MAC) or None,
-        on_tokens=save_tokens,
+        on_token=save_token,
         on_auth_failed=lambda: entry.async_start_reauth(hass),
+        on_change=lambda: [cb() for cb in changed],
     )
     controller = FrameController(backend, build_inputs(entry.options))
 
@@ -69,6 +67,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> boo
     )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = RuntimeData(controller, coordinator)
+    changed.append(
+        lambda: hass.async_create_task(coordinator.async_request_refresh())
+    )
+    entry.async_on_unload(backend.start())
 
     @callback
     def _smartthings_changed(event: Event) -> None:

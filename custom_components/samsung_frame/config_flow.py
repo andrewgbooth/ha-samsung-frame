@@ -23,7 +23,6 @@ from homeassistant.helpers.service_info.ssdp import SsdpServiceInfo
 
 from .backend import async_pair
 from .const import (
-    CONF_ART_TOKEN,
     CONF_ART_NAME,
     CONF_ENABLE_TV,
     CONF_HDMI1_NAME,
@@ -235,13 +234,13 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                tokens = await async_pair(self.hass, entry.data[CONF_HOST])
+                token = await async_pair(entry.data[CONF_HOST])
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Re-pairing failed", exc_info=True)
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_update_reload_and_abort(
-                    entry, data_updates={CONF_TOKEN: tokens.remote, CONF_ART_TOKEN: tokens.art}
+                    entry, data_updates={CONF_TOKEN: token}
                 )
         return self.async_show_form(
             step_id="reauth_confirm", data_schema=vol.Schema({}), errors=errors
@@ -253,9 +252,7 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                tokens = await async_pair(self.hass, self._data[CONF_HOST])
-                self._data[CONF_TOKEN] = tokens.remote
-                self._data[CONF_ART_TOKEN] = tokens.art
+                self._data[CONF_TOKEN] = await async_pair(self._data[CONF_HOST])
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Pairing failed", exc_info=True)
                 errors["base"] = "cannot_connect"

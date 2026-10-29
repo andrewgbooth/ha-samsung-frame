@@ -10,6 +10,7 @@ A single Home Assistant `media_player` for your Samsung **The Frame** TV that ge
 - **Per-input control:** HDMI 1, HDMI 2, HDMI 3 and **Art Mode**, each with a name you choose.
 - **Optional TV (tuner) input**, off by default. Turn it on if you use the built-in tuner.
 - **Correct power behaviour:** turning off fully powers the display off (never drops into Art Mode). Turning on resumes the last input, including Art Mode.
+- **Responsive switching:** a new command cancels an unfinished one, and the result is double-checked in the background.
 - **Reliable switching:** it wakes the TV from Art Mode or standby first, then selects the input, and confirms the change instead of trusting an optimistic status.
 - **Stays in sync** with changes made using the physical remote, updating as soon as SmartThings reports a change.
 - **Instant feedback:** when you pick an input it shows straight away (marked `source_unconfirmed`) and reverts if the switch fails.
@@ -41,7 +42,7 @@ A single Home Assistant `media_player` for your Samsung **The Frame** TV that ge
 1. Go to **Settings > Devices & services > Add integration** and choose **Samsung Frame**. (If your TV is discovered automatically, you may see it under **Discovered** instead.)
 2. Pick your TV from the list of Frames found on your network. If none is found, choose **Enter manually** and type its IP address (the MAC address is optional but enables fast Wake-on-LAN).
 3. The matching SmartThings media player is selected automatically. There is no manual picker; if no unique match exists, setup stops and tells you why.
-4. Turn the TV on, then press **Allow** on the TV when it asks to let Home Assistant connect.
+4. Turn the TV on, then press **Allow** on the TV when it asks to let Home Assistant connect (once).
 5. Name your inputs and choose whether to enable the TV input.
 
 To change names or the TV toggle later, open the integration and choose **Configure**.
@@ -56,7 +57,8 @@ Where possible everything runs locally for speed.
 
 | Task | Method |
 |---|---|
-| Detect Art Mode, wake from Art Mode | Local connection to the TV |
+| Detect Art Mode | Local, pushed by the TV over one persistent connection (instant, no polling) |
+| Wake from Art Mode | Local power key |
 | Know if the TV is on | Local status check, plus SmartThings |
 | Wake from fully off | Wake-on-LAN (if you gave a MAC), then the power key, then SmartThings |
 | Choose a specific HDMI input | SmartThings (existing integration, no extra login) |
