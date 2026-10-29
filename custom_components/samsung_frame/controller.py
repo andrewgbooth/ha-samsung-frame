@@ -72,6 +72,7 @@ class Timings:
     wake_settle: float = 4.0
     verify_delay: float = 15.0
     attempts: int = 2
+    operation_timeout: float = 120.0
 
 
 class FrameController:
@@ -172,7 +173,9 @@ class FrameController:
             self._optimistic = target.name
             self._notify()
             try:
-                ok = await self._switch(target)
+                ok = await asyncio.wait_for(
+                    self._switch(target), self._t.operation_timeout
+                )
             except Exception:  # noqa: BLE001 - quiet failure by design
                 _LOGGER.warning("Switching to %s failed", name, exc_info=True)
                 ok = False
@@ -195,7 +198,10 @@ class FrameController:
         async with self._lock:
             try:
                 await self._backend.power_off()
-                snap = await self._wait(lambda s: not s.power, self._t.power_timeout)
+                snap = await asyncio.wait_for(
+                    self._wait(lambda s: not s.power, self._t.power_timeout),
+                    self._t.operation_timeout,
+                )
                 ok = snap is not None
                 if not ok:
                     _LOGGER.warning("TV did not power off")

@@ -11,6 +11,7 @@ DOMAIN = "samsung_frame"
 CONF_HOST = "host"
 CONF_MAC = "mac"
 CONF_TOKEN = "token"
+CONF_ART_TOKEN = "art_token"
 CONF_NAME = "name"
 CONF_SMARTTHINGS_ENTITY = "smartthings_entity"
 

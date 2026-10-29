@@ -12,8 +12,9 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .backend import HABackend
+from .backend import HABackend, Tokens
 from .const import (
+    CONF_ART_TOKEN,
     CONF_HOST,
     CONF_MAC,
     CONF_SMARTTHINGS_ENTITY,
@@ -38,18 +39,22 @@ type FrameConfigEntry = ConfigEntry[RuntimeData]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> bool:
-    def save_token(token: str) -> None:
+    def save_tokens(tokens: Tokens) -> None:
         hass.config_entries.async_update_entry(
-            entry, data={**entry.data, CONF_TOKEN: token}
+            entry,
+            data={**entry.data, CONF_TOKEN: tokens.remote, CONF_ART_TOKEN: tokens.art},
         )
 
     backend = HABackend(
         hass,
         host=entry.data[CONF_HOST],
-        token=entry.data[CONF_TOKEN],
+        tokens=Tokens(
+            remote=entry.data[CONF_TOKEN],
+            art=entry.data.get(CONF_ART_TOKEN) or entry.data[CONF_TOKEN],
+        ),
         smartthings_entity=entry.data[CONF_SMARTTHINGS_ENTITY],
         mac=entry.data.get(CONF_MAC) or None,
-        on_token=save_token,
+        on_tokens=save_tokens,
         on_auth_failed=lambda: entry.async_start_reauth(hass),
     )
     controller = FrameController(backend, build_inputs(entry.options))
