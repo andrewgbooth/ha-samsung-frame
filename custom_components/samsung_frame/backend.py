@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 from homeassistant.core import HomeAssistant
 
@@ -23,6 +24,7 @@ from .controller import Snapshot
 _LOGGER = logging.getLogger(__name__)
 
 _CLIENT_NAME = "HomeAssistant"
+BLOCK_SECONDS = 300
 
 
 async def async_pair(host: str) -> str:
@@ -50,7 +52,10 @@ class HABackend:
         token: str,
         smartthings_entity: str,
         mac: Optional[str] = None,
+        on_token: Optional[Callable[[str], None]] = None,
     ) -> None:
+        self._on_token = on_token
+        self._blocked_until = 0.0
         self._hass = hass
         self._host = host
         self._token = token
@@ -74,6 +79,32 @@ class HABackend:
 
     # ----- local -----------------------------------------------------
 
+    def _check_not_blocked(self) -> None:
+        """After the TV rejects our token, stop knocking: every attempt
+        pops an Allow prompt on the screen."""
+        if time.monotonic() < self._blocked_until:
+            raise ConnectionError("TV rejected the saved token; local calls paused")
+
+    def _block(self) -> None:
+        if time.monotonic() >= self._blocked_until:
+            _LOGGER.warning(
+                "The TV rejected Home Assistant's saved token. Local control is "
+                "paused for %d s to avoid repeated Allow prompts. On the TV, check "
+                "Settings > General > External Device Manager > Device Connection "
+                "Manager, allow 'HomeAssistant', and set Access Notification to "
+                "'First Time Only'.",
+                BLOCK_SECONDS,
+            )
+        self._blocked_until = time.monotonic() + BLOCK_SECONDS
+
+    def _remember_token(self, client) -> None:
+        """The TV may hand out a fresh token on connect; keep and persist it."""
+        token = getattr(client, "token", None)
+        if token and token != self._token:
+            self._token = token
+            if self._on_token is not None:
+                self._hass.loop.call_soon_threadsafe(self._on_token, token)
+
     async def _port_open(self, timeout: float = 1.0) -> bool:
         try:
             _, writer = await asyncio.wait_for(
@@ -87,13 +118,21 @@ class HABackend:
     def _art_mode_blocking(self) -> Optional[bool]:
         """Blocking art-channel query (samsungtvws has no async art client)."""
         from samsungtvws.art import SamsungTVArt
+        from samsungtvws.exceptions import UnauthorizedError
 
+        if time.monotonic() < self._blocked_until:
+            return None
         art = SamsungTVArt(
             host=self._host, port=PORT, token=self._token, name=_CLIENT_NAME,
             timeout=5,
         )
         try:
-            return str(art.get_artmode()).lower() == "on"
+            result = str(art.get_artmode()).lower() == "on"
+            self._remember_token(art)
+            return result
+        except UnauthorizedError:
+            self._block()
+            return None
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Art mode query failed", exc_info=True)
             return None
@@ -142,8 +181,10 @@ class HABackend:
 
     async def send_key(self, key: str) -> None:
         from samsungtvws.async_remote import SamsungTVWSAsyncRemote
+        from samsungtvws.exceptions import UnauthorizedError
         from samsungtvws.remote import SendRemoteKey
 
+        self._check_not_blocked()
         remote = SamsungTVWSAsyncRemote(
             host=self._host, port=PORT, token=self._token, name=_CLIENT_NAME,
             timeout=5,
@@ -151,6 +192,10 @@ class HABackend:
         try:
             await remote.start_listening()
             await remote.send_command(SendRemoteKey.click(key))
+            self._remember_token(remote)
+        except UnauthorizedError:
+            self._block()
+            raise
         finally:
             await remote.close()
 

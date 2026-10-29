@@ -37,12 +37,18 @@ type FrameConfigEntry = ConfigEntry[RuntimeData]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> bool:
+    def save_token(token: str) -> None:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_TOKEN: token}
+        )
+
     backend = HABackend(
         hass,
         host=entry.data[CONF_HOST],
         token=entry.data[CONF_TOKEN],
         smartthings_entity=entry.data[CONF_SMARTTHINGS_ENTITY],
         mac=entry.data.get(CONF_MAC) or None,
+        on_token=save_token,
     )
     controller = FrameController(backend, build_inputs(entry.options))
 
