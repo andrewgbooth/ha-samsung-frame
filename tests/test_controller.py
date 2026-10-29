@@ -22,8 +22,10 @@ NAMES = {
 class Clock:
     def __init__(self):
         self.now = 0.0
+        self.log = []
 
     async def sleep(self, s):
+        self.log.append(("sleep", s))
         self.now += s
 
     def monotonic(self):
@@ -34,13 +36,15 @@ class FakeTV:
     """Quirks: power key toggles art; select ignored in art; optimistic echo."""
 
     def __init__(self, clock, power=True, art=False, source="hdmi3",
-                 boot_art=False, cec_revert=False, art_known=True):
+                 boot_art=False, cec_revert=False, art_known=True,
+                 ignore_keys=0):
         self.clock = clock
         self.power, self.art, self.source = power, art, source
         self.boot_art, self.cec_revert, self.art_known = boot_art, cec_revert, art_known
         self.echo = None
         self.echo_until = 0.0
         self.keys = []
+        self.ignore_keys = ignore_keys  # power keys lost while the TV wakes
 
     async def snapshot(self, refresh=False):
         src = self.source
@@ -50,6 +54,7 @@ class FakeTV:
         return Snapshot(self.power, art, src if self.power else None)
 
     async def power_on(self):
+        self.clock.log.append(("power_on",))
         self.power, self.art = True, self.boot_art
 
     async def power_off(self):
@@ -57,10 +62,15 @@ class FakeTV:
 
     async def send_key(self, key):
         self.keys.append(key)
+        self.clock.log.append(("key", key))
+        if key == "KEY_POWER" and self.ignore_keys:
+            self.ignore_keys -= 1
+            return
         if key == "KEY_POWER" and self.power:
             self.art = not self.art
 
     async def select_input(self, key):
+        self.clock.log.append(("select", key))
         self.echo, self.echo_until = key, self.clock.now + 15
         if self.power and not self.art and not self.cec_revert:
             self.source = key
@@ -73,6 +83,7 @@ def make(tv_kwargs=None, **opts):
         tv, build_inputs({**NAMES, **opts}),
         timings=Timings(), sleep=clock.sleep, monotonic=clock.monotonic,
     )
+    ctl.clock = clock
     return tv, ctl
 
 
@@ -96,6 +107,56 @@ def test_from_fully_off_cold_boot_lands_in_art_then_input():
         assert await ctl.async_select_source("Kodi")
         assert tv.source == "hdmi2" and not tv.art
         assert tv.keys == ["KEY_POWER"]  # one wake press, no blind toggles
+    run(go())
+
+
+def test_from_off_waits_wake_delay_before_any_key():
+    async def go():
+        tv, ctl = make(dict(power=False, boot_art=True))
+        assert await ctl.async_select_source("Kodi")
+        log = ctl.clock.log
+        delay = ("sleep", Timings().wake_delay)
+        assert delay in log
+        assert log.index(("power_on",)) < log.index(delay)
+        first_action = min(
+            log.index(e) for e in log if e[0] in ("key", "select")
+        )
+        assert log.index(delay) < first_action
+    run(go())
+
+
+def test_from_off_stale_art_first_power_key_lost_is_retried():
+    async def go():
+        tv, ctl = make(dict(power=False, boot_art=True, ignore_keys=1))
+        assert await ctl.async_select_source("Kodi")
+        assert tv.keys == ["KEY_POWER", "KEY_POWER"]
+        assert ctl.clock.log.count(("select", "hdmi2")) >= 1
+        assert tv.source == "hdmi2" and not tv.art
+        first_key = ctl.clock.log.index(("key", "KEY_POWER"))
+        assert first_key > ctl.clock.log.index(("sleep", Timings().wake_delay))
+    run(go())
+
+
+def test_wake_key_not_repeated_when_art_state_unknown():
+    async def go():
+        tv, ctl = make(dict(art=True, ignore_keys=1))
+        orig = tv.send_key
+
+        async def send(key):
+            await orig(key)
+            tv.art_known = False  # art channel drops after the first press
+
+        tv.send_key = send
+        assert not await ctl.async_select_source("Kodi")
+        assert tv.keys == ["KEY_POWER"]  # never pressed blindly again
+    run(go())
+
+
+def test_from_art_with_tv_on_has_no_wake_delay():
+    async def go():
+        tv, ctl = make(dict(art=True, source="hdmi3"))
+        assert await ctl.async_select_source("CCTV")
+        assert ("sleep", Timings().wake_delay) not in ctl.clock.log
     run(go())
 
 
