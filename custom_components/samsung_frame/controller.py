@@ -66,8 +66,10 @@ class Backend(Protocol):
 class Timings:
     poll: float = 1.0
     power_timeout: float = 30.0
-    ready_timeout: float = 8.0     # max wait for the TV to be usable after power on
-    ready_settle: float = 1.0
+    # Static pause after a cold power-on before sending any key: the TV ignores
+    # keys until it has finished waking (its wakeup event arrives ~6 s after
+    # power-on) and reports a stale Art mode "on" while in standby.
+    wake_delay: float = 10.0
     art_timeout: float = 15.0
     art_settle: float = 1.5
     wake_settle: float = 2.0
@@ -289,9 +291,7 @@ class FrameController:
             if woke is None:
                 _LOGGER.warning("TV did not power on")
                 return False
-            # Ready = Art mode state known (art channel up). Best effort.
-            await self._wait(lambda s: s.art is not None, self._t.ready_timeout)
-            await self._sleep(self._t.ready_settle)
+            await self._sleep(self._t.wake_delay)
             snap = await self._backend.snapshot(refresh=True)
         if target.kind == KIND_ART:
             return await self._to_art(snap)
@@ -313,13 +313,19 @@ class FrameController:
         return bool(snap.art)
 
     async def _wake_from_art(self) -> bool:
-        await self._backend.send_key(KEY_POWER)
-        woke = await self._wait(lambda s: s.art is False, self._t.art_timeout)
-        if woke is None:
-            _LOGGER.warning("TV stayed in Art mode after power key")
-            return False
-        await self._sleep(self._t.wake_settle)
-        return True
+        for attempt in range(self._t.attempts):
+            await self._backend.send_key(KEY_POWER)
+            woke = await self._wait(lambda s: s.art is False, self._t.art_timeout)
+            if woke is not None:
+                await self._sleep(self._t.wake_settle)
+                return True
+            if attempt + 1 == self._t.attempts:
+                break
+            snap = await self._backend.snapshot(refresh=True)
+            if snap.art is not True:
+                break  # KEY_POWER toggles Art mode; never press it blindly
+        _LOGGER.warning("TV stayed in Art mode after power key")
+        return False
 
     async def _to_input(self, target: TvInput, snap: Snapshot) -> bool:
         """Foreground: wake if needed and send the input command, once."""
