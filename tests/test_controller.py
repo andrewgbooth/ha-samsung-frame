@@ -272,3 +272,23 @@ def test_subnet_candidates():
     hosts = subnet_candidates("10.22.153.7")
     assert len(hosts) == 253 and "10.22.153.7" not in hosts and "10.22.153.106" in hosts
     assert subnet_candidates(None) == [] and subnet_candidates("127.0.0.1") == []
+
+
+def test_smartthings_matching():
+    from custom_components.samsung_frame.matching import (
+        StCandidate,
+        pick_smartthings_entity,
+    )
+
+    tv = StCandidate("media_player.frame_tv", frozenset({"20:15:DE:3D:B9:06"}),
+                     "QE43LS03DAUXXU", "Frame TV")
+    other = StCandidate("media_player.soundbar", frozenset(), "HW-Q990D", "Soundbar")
+    pick = pick_smartthings_entity
+    assert pick([other, tv], "20:15:de:3d:b9:06", None, None) == "media_player.frame_tv"
+    assert pick([other, tv], None, "QE43LS03DAU", None) == "media_player.frame_tv"
+    assert pick([other, tv], None, None, "frame tv") == "media_player.frame_tv"
+    assert pick([other], "20:15:de:3d:b9:06", "QE43LS03DAU", None) is None
+    twin = StCandidate("media_player.frame_tv_2", frozenset(), "QE43LS03DAUXXU", "x")
+    assert pick([tv, twin], None, "QE43LS03DAU", None) is None  # ambiguous
+    assert pick([tv, twin], "20:15:de:3d:b9:06", "QE43LS03DAU", None) == "media_player.frame_tv"
+    assert pick([tv], None, "QE43", None) is None  # too short to trust

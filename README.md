@@ -32,7 +32,7 @@ the SmartThings poll window instead of trusting its optimistic echo.
 
 1. Copy `custom_components/samsung_frame` into your HA config, or add this repo to HACS as a custom repository.
 2. Restart Home Assistant.
-3. The TV is usually discovered automatically (SSDP, mDNS and a /24 probe, as in FrameHAPhotosSync) and appears as a notification; otherwise add **Samsung Frame**, and it lists any Frames it finds. If none are found, enter the IP (MAC optional, it is read from the TV when possible). Then pick the SmartThings media player, press Allow on the TV, and name your inputs.
+3. The TV is usually discovered automatically (SSDP, mDNS and a /24 probe, as in FrameHAPhotosSync) and appears as a notification; otherwise add **Samsung Frame**, and it lists any Frames it finds. If none are found, enter the IP (MAC optional, it is read from the TV when possible). The matching SmartThings media player is found automatically (by MAC, then model, then name); there is no manual picker, and setup stops with a message if no unique match exists. Then press Allow on the TV and name your inputs.
 
 Before adding the HomeKit accessory, create it in **accessory mode** so it appears as a TV.
 
@@ -41,6 +41,7 @@ Before adding the HomeKit accessory, create it in **accessory mode** so it appea
 Unit tests pass (`pytest`), but this has **not** yet been run against the TV or a
 real Home Assistant. Unverified:
 
+- SmartThings auto-match: SmartThings devices may not expose a MAC in the device registry, so matching may fall back to model prefix or name
 - automatic discovery (SSDP cache, mDNS, /24 probe + `http://<tv>:8001/api/v2/` probe) and the config flow screens
 - samsungtvws async art-channel calls (`get_artmode`) and key sending on this TV
 - Wake-on-LAN from the fully-off state after a SmartThings off

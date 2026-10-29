@@ -13,6 +13,8 @@ from homeassistant.config_entries import (
     OptionsFlowWithReload,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from homeassistant.helpers.service_info.ssdp import SsdpServiceInfo
@@ -34,6 +36,7 @@ from .const import (
     DOMAIN,
     names_are_valid,
 )
+from .matching import StCandidate, pick_smartthings_entity
 from .discovery import FoundTv, async_probe, async_scan, host_from_location
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,12 +59,37 @@ def _inputs_schema(defaults: dict[str, Any]) -> vol.Schema:
 MANUAL = "manual"
 
 
+def smartthings_candidates(hass) -> list[StCandidate]:
+    """SmartThings media_players with the device details used for matching."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    out: list[StCandidate] = []
+    for ent in ent_reg.entities.values():
+        if (
+            ent.platform != "smartthings"
+            or ent.domain != "media_player"
+            or ent.disabled_by
+        ):
+            continue
+        dev = dev_reg.async_get(ent.device_id) if ent.device_id else None
+        out.append(
+            StCandidate(
+                entity_id=ent.entity_id,
+                macs=frozenset(v for k, v in (dev.connections if dev else ()) if k == "mac"),
+                model=dev.model if dev else None,
+                name=(dev.name_by_user or dev.name) if dev else ent.original_name,
+            )
+        )
+    return out
+
+
 class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._found: dict[str, FoundTv] = {}
+        self._tv: FoundTv | None = None
 
     # ----- finding the TV: scan, then fall back to manual ------------
 
@@ -82,10 +110,10 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         elif user_input["device"] == MANUAL:
             return await self.async_step_manual()
         else:
-            tv = self._found[user_input["device"]]
+            tv = self._tv = self._found[user_input["device"]]
             self._data.update({CONF_HOST: tv.host, CONF_MAC: tv.mac or ""})
             self._data[CONF_NAME] = tv.name
-            return await self.async_step_details()
+            return await self._async_match_smartthings()
         options = [
             selector.SelectOptionDict(value=h, label=t.label)
             for h, t in self._found.items()
@@ -112,7 +140,7 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
             mac = (user_input.get(CONF_MAC) or "").strip().lower()
-            tv = await async_probe(self.hass, host)
+            tv = self._tv = await async_probe(self.hass, host)
             if tv is None and not mac:
                 # Not answering on the info port; pairing will tell us more.
                 _LOGGER.debug("No device info from %s", host)
@@ -120,7 +148,7 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
                 {CONF_HOST: host, CONF_MAC: mac or (tv.mac if tv and tv.mac else "")}
             )
             self._data[CONF_NAME] = tv.name if tv else "Samsung Frame"
-            return await self.async_step_details()
+            return await self._async_match_smartthings()
         return self.async_show_form(
             step_id="manual",
             data_schema=vol.Schema(
@@ -141,6 +169,7 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="not_frame")
         await self.async_set_unique_id((tv.mac or tv.host).lower())
         self._abort_if_unique_id_configured(updates={CONF_HOST: tv.host})
+        self._tv = tv
         self._data.update(
             {CONF_HOST: tv.host, CONF_MAC: tv.mac or "", CONF_NAME: tv.name}
         )
@@ -151,7 +180,7 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            return await self.async_step_details()
+            return await self._async_match_smartthings()
         return self.async_show_form(
             step_id="confirm",
             description_placeholders={"name": self._data[CONF_NAME],
@@ -160,30 +189,19 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # ----- the rest --------------------------------------------------
 
-    async def async_step_details(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_pair()
-        return self.async_show_form(
-            step_id="details",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_NAME, default=self._data[CONF_NAME]
-                    ): str,
-                    vol.Required(
-                        CONF_SMARTTHINGS_ENTITY
-                    ): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="media_player", integration="smartthings"
-                        )
-                    ),
-                }
-            ),
-            description_placeholders={"host": self._data[CONF_HOST]},
+    async def _async_match_smartthings(self) -> ConfigFlowResult:
+        """Find the matching SmartThings entity automatically, or stop."""
+        tv = self._tv
+        entity = pick_smartthings_entity(
+            smartthings_candidates(self.hass),
+            self._data.get(CONF_MAC) or (tv.mac if tv else None),
+            tv.model if tv else None,
+            self._data.get(CONF_NAME),
         )
+        if entity is None:
+            return self.async_abort(reason="smartthings_not_found")
+        self._data[CONF_SMARTTHINGS_ENTITY] = entity
+        return await self.async_step_pair()
 
     async def async_step_pair(
         self, user_input: dict[str, Any] | None = None
