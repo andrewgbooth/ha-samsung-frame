@@ -45,6 +45,7 @@ MAX_STRIKES = 2          # unanswered prompts in a row before asking to re-pair
 ST_MIN_GAP = 3.0         # never force a SmartThings refresh more often
 CALL_TIMEOUT = 20        # no single backend call may hang the controller
 ART_RECONNECT_MAX = 15   # seconds between art channel reconnect attempts
+ART_ASK_EVERY = 10       # seconds between status requests while Art mode is unknown
 
 ART_PATH = "/api/v2/channels/com.samsung.art-app"
 
@@ -189,7 +190,18 @@ class HABackend:
                 ) as ws:
                     _LOGGER.debug("Art channel connected")
                     delay = 3.0
-                    async for raw in ws:
+                    # Do not wait for the TV to volunteer the status: ask now,
+                    # and keep asking while it is unknown.
+                    await self._request_art_status(ws)
+                    while True:
+                        try:
+                            raw = await asyncio.wait_for(ws.recv(), ART_ASK_EVERY)
+                        except asyncio.TimeoutError:
+                            if self._art is None:
+                                _LOGGER.debug("Art status still unknown; asking again")
+                                await self._request_art_status(ws)
+                            continue
+                        _LOGGER.debug("Art message: %s", str(raw)[:300])
                         await self._on_art_message(ws, raw)
             except asyncio.CancelledError:
                 raise
@@ -225,7 +237,7 @@ class HABackend:
         except ValueError:
             return
         event = msg.get("event")
-        if event == "ms.channel.ready":
+        if event in ("ms.channel.connect", "ms.channel.ready"):
             await self._request_art_status(ws)
         elif event == "d2d_service_message":
             try:
