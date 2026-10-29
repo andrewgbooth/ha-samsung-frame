@@ -84,22 +84,28 @@ class HABackend:
         writer.close()
         return True
 
-    async def _art_mode(self) -> Optional[bool]:
-        """UNVERIFIED on the target TV: art channel get_artmode."""
-        from samsungtvws.async_art import SamsungTVAsyncArt
+    def _art_mode_blocking(self) -> Optional[bool]:
+        """Blocking art-channel query (samsungtvws has no async art client)."""
+        from samsungtvws.art import SamsungTVArt
 
-        art = SamsungTVAsyncArt(
+        art = SamsungTVArt(
             host=self._host, port=PORT, token=self._token, name=_CLIENT_NAME,
             timeout=5,
         )
         try:
-            await art.start_listening()
-            return (await art.get_artmode()) == "on"
+            return str(art.get_artmode()).lower() == "on"
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Art mode query failed", exc_info=True)
             return None
         finally:
-            await art.close()
+            try:
+                art.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _art_mode(self) -> Optional[bool]:
+        """UNVERIFIED on the target TV: art channel get_artmode."""
+        return await self._hass.async_add_executor_job(self._art_mode_blocking)
 
     # ----- Backend protocol ------------------------------------------
 
