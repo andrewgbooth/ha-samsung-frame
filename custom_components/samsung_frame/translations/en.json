@@ -10,7 +10,7 @@
       },
       "pair": {
         "title": "Pair with the TV",
-        "description": "Turn the TV on, then select Submit and press Allow on the TV when prompted."
+        "description": "Turn the TV on, then select Submit and press Allow on the TV when prompted. You may be asked twice."
       },
       "inputs": {
         "title": "Inputs",
@@ -35,6 +35,10 @@
       "confirm": {
         "title": "Set up {name}?",
         "description": "A Samsung Frame was found at {host}."
+      },
+      "reauth_confirm": {
+        "title": "Pair with the TV again",
+        "description": "The TV no longer accepts Home Assistant's saved permission. Turn the TV on, select Submit, and press Allow on the TV. You may need to press Allow twice."
       }
     },
     "error": {
@@ -46,7 +50,8 @@
       "not_frame": "That device does not look like a Samsung Frame.",
       "smartthings_not_found": "No matching SmartThings media player was found for this TV. Add the TV to the core SmartThings integration first, then try again.",
       "smartthings_missing": "The SmartThings integration is not set up. Add it under Settings > Devices & services, sign in to your Samsung account, then add Samsung Frame again.",
-      "smartthings_no_devices": "SmartThings is set up but has no media player devices. Make sure your TV appears in SmartThings and in Home Assistant, then add Samsung Frame again."
+      "smartthings_no_devices": "SmartThings is set up but has no media player devices. Make sure your TV appears in SmartThings and in Home Assistant, then add Samsung Frame again.",
+      "reauth_successful": "Re-pairing was successful."
     }
   },
   "options": {

@@ -49,6 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> boo
         smartthings_entity=entry.data[CONF_SMARTTHINGS_ENTITY],
         mac=entry.data.get(CONF_MAC) or None,
         on_token=save_token,
+        on_auth_failed=lambda: entry.async_start_reauth(hass),
     )
     controller = FrameController(backend, build_inputs(entry.options))
 

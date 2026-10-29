@@ -23,16 +23,37 @@ from .controller import Snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
-_CLIENT_NAME = "HomeAssistant"
+# Must be unique to this integration. The TV keeps ONE token per client name,
+# so sharing "HomeAssistant" with the core samsungtv / samsungtv_smart
+# integrations makes them keep invalidating each other's tokens and the TV
+# shows an Allow prompt over and over.
+CLIENT_NAME = "HA Samsung Frame"
+_CLIENT_NAME = CLIENT_NAME
 BLOCK_SECONDS = 300
 
 
-async def async_pair(host: str) -> str:
+def _authorize_art_channel(host: str, token: str) -> None:
+    """Best effort: surface any art-channel Allow prompt during setup."""
+    from samsungtvws.art import SamsungTVArt
+
+    art = SamsungTVArt(host=host, port=PORT, token=token, name=CLIENT_NAME, timeout=30)
+    try:
+        art.get_artmode()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Art channel authorisation during pairing failed", exc_info=True)
+    finally:
+        try:
+            art.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def async_pair(hass: HomeAssistant, host: str) -> str:
     """Connect once to obtain a token. The TV shows an Allow prompt."""
     from samsungtvws.async_remote import SamsungTVWSAsyncRemote
 
     remote = SamsungTVWSAsyncRemote(
-        host=host, port=PORT, name=_CLIENT_NAME, timeout=30
+        host=host, port=PORT, name=CLIENT_NAME, timeout=30
     )
     try:
         await remote.start_listening()
@@ -41,6 +62,7 @@ async def async_pair(host: str) -> str:
         await remote.close()
     if not token:
         raise ConnectionError("TV did not return a token")
+    await hass.async_add_executor_job(_authorize_art_channel, host, token)
     return token
 
 
@@ -53,8 +75,10 @@ class HABackend:
         smartthings_entity: str,
         mac: Optional[str] = None,
         on_token: Optional[Callable[[str], None]] = None,
+        on_auth_failed: Optional[Callable[[], None]] = None,
     ) -> None:
         self._on_token = on_token
+        self._on_auth_failed = on_auth_failed
         self._blocked_until = 0.0
         self._hass = hass
         self._host = host
@@ -87,6 +111,8 @@ class HABackend:
 
     def _block(self) -> None:
         if time.monotonic() >= self._blocked_until:
+            if self._on_auth_failed is not None:
+                self._hass.loop.call_soon_threadsafe(self._on_auth_failed)
             _LOGGER.warning(
                 "The TV rejected Home Assistant's saved token. Local control is "
                 "paused for %d s to avoid repeated Allow prompts. On the TV, check "
@@ -133,8 +159,11 @@ class HABackend:
         except UnauthorizedError:
             self._block()
             return None
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Art mode query failed", exc_info=True)
+            if "timeOut" in str(err) or "unauthorized" in str(err).lower():
+                # The TV is showing an Allow prompt we cannot answer.
+                self._block()
             return None
         finally:
             try:
@@ -195,6 +224,10 @@ class HABackend:
             self._remember_token(remote)
         except UnauthorizedError:
             self._block()
+            raise
+        except Exception as err:
+            if "timeOut" in str(err):
+                self._block()
             raise
         finally:
             await remote.close()
