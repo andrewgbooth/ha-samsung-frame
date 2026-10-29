@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -96,6 +97,9 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        if (problem := self._smartthings_problem()) is not None:
+            _LOGGER.warning("Setup stopped: %s", problem)
+            return self.async_abort(reason=problem)
         if user_input is None:
             configured = {
                 e.data.get(CONF_HOST) for e in self._async_current_entries()
@@ -163,6 +167,8 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
+        if (problem := self._smartthings_problem()) is not None:
+            return self.async_abort(reason=problem)
         host = host_from_location(discovery_info.ssdp_location)
         tv = await async_probe(self.hass, host) if host else None
         if tv is None:
@@ -188,6 +194,19 @@ class SamsungFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     # ----- the rest --------------------------------------------------
+
+    def _smartthings_problem(self) -> str | None:
+        """Abort reason if SmartThings is not set up well enough to continue."""
+        entries = [
+            e
+            for e in self.hass.config_entries.async_entries("smartthings")
+            if e.state is ConfigEntryState.LOADED
+        ]
+        if not entries:
+            return "smartthings_missing"
+        if not smartthings_candidates(self.hass):
+            return "smartthings_no_devices"
+        return None
 
     async def _async_match_smartthings(self) -> ConfigFlowResult:
         """Find the matching SmartThings entity automatically, or stop."""
