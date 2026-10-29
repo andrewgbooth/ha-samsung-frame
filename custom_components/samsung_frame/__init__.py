@@ -8,7 +8,8 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .backend import HABackend
@@ -24,7 +25,7 @@ from .controller import FrameController
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.MEDIA_PLAYER]
-SCAN_INTERVAL = timedelta(seconds=10)
+SCAN_INTERVAL = timedelta(seconds=5)
 
 
 @dataclass
@@ -63,6 +64,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> boo
     )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = RuntimeData(controller, coordinator)
+
+    @callback
+    def _smartthings_changed(event: Event) -> None:
+        # Refresh now instead of waiting for the next poll.
+        hass.async_create_task(coordinator.async_request_refresh())
+
+    entry.async_on_unload(
+        async_track_state_change_event(
+            hass, [entry.data[CONF_SMARTTHINGS_ENTITY]], _smartthings_changed
+        )
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

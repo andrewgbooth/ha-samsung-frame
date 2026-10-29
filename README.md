@@ -11,7 +11,8 @@ A single Home Assistant `media_player` for your Samsung **The Frame** TV that ge
 - **Optional TV (tuner) input**, off by default. Turn it on if you use the built-in tuner.
 - **Correct power behaviour:** turning off fully powers the display off (never drops into Art Mode). Turning on resumes the last input, including Art Mode.
 - **Reliable switching:** it wakes the TV from Art Mode or standby first, then selects the input, and confirms the change instead of trusting an optimistic status.
-- **Stays in sync** with changes made using the physical remote.
+- **Stays in sync** with changes made using the physical remote, updating as soon as SmartThings reports a change.
+- **Instant feedback:** when you pick an input it shows straight away (marked `source_unconfirmed`) and reverts if the switch fails.
 - **Works as a HomeKit TV accessory** (power and input picker).
 - **Automatic setup:** finds your Frame on the network and the matching SmartThings device.
 - **Everything is configured in the UI.** Rename inputs or toggle the TV input at any time; changes apply without a restart.
@@ -56,7 +57,8 @@ Where possible everything runs locally for speed.
 | Task | Method |
 |---|---|
 | Detect Art Mode, wake from Art Mode | Local connection to the TV |
-| Wake from fully off | Wake-on-LAN (if you gave a MAC), otherwise SmartThings |
+| Know if the TV is on | Local status check, plus SmartThings |
+| Wake from fully off | Wake-on-LAN (if you gave a MAC), then the power key, then SmartThings |
 | Choose a specific HDMI input | SmartThings (existing integration, no extra login) |
 | Fully power off | SmartThings |
 

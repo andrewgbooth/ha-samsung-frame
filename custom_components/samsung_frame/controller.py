@@ -95,6 +95,17 @@ class FrameController:
         self._snap = Snapshot(False, False, None)
         self._source: Optional[str] = None
         self._last: Optional[TvInput] = None
+        self._optimistic: Optional[str] = None
+        self._listeners: list[Callable[[], None]] = []
+
+    def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Be told when the reported state changes outside a poll."""
+        self._listeners.append(callback)
+        return lambda: self._listeners.remove(callback)
+
+    def _notify(self) -> None:
+        for callback in list(self._listeners):
+            callback()
 
     # ----- read side -------------------------------------------------
 
@@ -104,11 +115,16 @@ class FrameController:
 
     @property
     def is_on(self) -> bool:
-        return self._snap.power
+        return self._snap.power or self._optimistic is not None
 
     @property
     def source(self) -> Optional[str]:
-        return self._source
+        """The verified source, or the requested one while switching."""
+        return self._optimistic or self._source
+
+    @property
+    def source_unconfirmed(self) -> bool:
+        return self._optimistic is not None
 
     @property
     def transitioning(self) -> bool:
@@ -151,12 +167,18 @@ class FrameController:
         if target is None:
             raise ValueError(f"Unknown source: {name}")
         async with self._lock:
+            # Show the request straight away, flagged as unconfirmed; it is
+            # replaced by the verified state when the switch finishes.
+            self._optimistic = target.name
+            self._notify()
             try:
                 ok = await self._switch(target)
             except Exception:  # noqa: BLE001 - quiet failure by design
                 _LOGGER.warning("Switching to %s failed", name, exc_info=True)
                 ok = False
             await self._resync()
+            self._optimistic = None
+            self._notify()
             if ok:
                 self._last = target
             else:

@@ -131,15 +131,34 @@ class HABackend:
             if self._on_token is not None:
                 self._hass.loop.call_soon_threadsafe(self._on_token, token)
 
-    async def _port_open(self, timeout: float = 1.0) -> bool:
+    async def _local_power(self) -> Optional[bool]:
+        """Local PowerState from the TV's info endpoint (fast, no cloud).
+
+        True = on, False = reachable but in standby, None = unreachable.
+        A TV turned "off" via SmartThings stays in network standby, so
+        port-open is NOT a sign it is awake.
+        """
+        from aiohttp import ClientTimeout
+
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
         try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(self._host, PORT), timeout
-            )
-        except (OSError, asyncio.TimeoutError):
-            return False
-        writer.close()
-        return True
+            async with async_get_clientsession(self._hass).get(
+                f"http://{self._host}:8001/api/v2/", timeout=ClientTimeout(total=2)
+            ) as resp:
+                data = await resp.json(content_type=None)
+            state = str((data.get("device") or {}).get("PowerState", "")).lower()
+        except Exception:  # noqa: BLE001
+            return None
+        return state == "on"
+
+    async def _wait_local_on(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if await self._local_power():
+                return True
+            await asyncio.sleep(0.5)
+        return False
 
     def _art_mode_blocking(self) -> Optional[bool]:
         """Blocking art-channel query (samsungtvws has no async art client)."""
@@ -184,9 +203,11 @@ class HABackend:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("SmartThings refresh failed", exc_info=True)
         state = self._hass.states.get(self._st)
-        power = state is not None and state.state == "on"
+        st_on = state is not None and state.state == "on"
+        # Local PowerState lets us see "on" without waiting for the cloud.
+        power = st_on or bool(await self._local_power())
         source = None
-        if power and state is not None:
+        if st_on and state is not None:
             raw = state.attributes.get("source")
             source = str(raw).lower() if raw else None
         art: Optional[bool] = False
@@ -195,13 +216,26 @@ class HABackend:
         return Snapshot(power=power, art=art, source=source)
 
     async def power_on(self) -> None:
+        """Wake locally first (WoL, then power key), SmartThings last.
+
+        The power key only toggles Art mode on a TV that is already awake,
+        so it is sent only when the TV is reachable and reports standby.
+        """
+        if await self._local_power():
+            return
         if self._mac:
             from wakeonlan import send_magic_packet
 
             await self._hass.async_add_executor_job(send_magic_packet, self._mac)
-            for _ in range(8):
-                await asyncio.sleep(0.5)
-                if await self._port_open():
+            if await self._wait_local_on(5):
+                return
+        if await self._local_power() is False:
+            try:
+                await self.send_key("KEY_POWER")
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Wake by power key failed", exc_info=True)
+            else:
+                if await self._wait_local_on(5):
                     return
         await self._st_call("turn_on")
 

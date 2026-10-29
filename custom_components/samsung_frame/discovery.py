@@ -52,11 +52,13 @@ def host_from_location(location: Optional[str]) -> Optional[str]:
 
 async def async_probe(hass, host: str) -> Optional[FoundTv]:
     """Ask a host whether it is a Frame. None if unreachable or not a Frame."""
+    from aiohttp import ClientTimeout
+
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
     try:
         async with async_get_clientsession(hass).get(
-            f"http://{host}:{INFO_PORT}/api/v2/", timeout=PROBE_TIMEOUT
+            f"http://{host}:{INFO_PORT}/api/v2/", timeout=ClientTimeout(total=PROBE_TIMEOUT)
         ) as resp:
             payload = await resp.json(content_type=None)
     except (OSError, asyncio.TimeoutError, ValueError):

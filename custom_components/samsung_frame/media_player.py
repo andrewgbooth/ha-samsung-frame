@@ -57,6 +57,7 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        self.async_on_remove(self._ctl.add_listener(self.async_write_ha_state))
         if (last := await self.async_get_last_state()) is not None:
             self._ctl.restore_last_input(last.attributes.get(_LAST_INPUT))
 
@@ -74,7 +75,10 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {_LAST_INPUT: self._ctl.last_input_name}
+        return {
+            _LAST_INPUT: self._ctl.last_input_name,
+            "source_unconfirmed": self._ctl.source_unconfirmed,
+        }
 
     async def _finish(self) -> None:
         self.coordinator.async_set_updated_data(None)

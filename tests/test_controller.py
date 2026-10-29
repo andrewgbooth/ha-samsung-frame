@@ -200,7 +200,8 @@ def test_source_not_reported_during_transition():
 
         tv.select_input = spy
         await ctl.async_select_source("Kodi")
-        assert seen == ["Apple TV"]
+        assert seen == ["Kodi"]  # requested source shown while switching
+        assert not ctl.source_unconfirmed and ctl.source == "Kodi"
     run(go())
 
 
@@ -292,3 +293,26 @@ def test_smartthings_matching():
     assert pick([tv, twin], None, "QE43LS03DAU", None) is None  # ambiguous
     assert pick([tv, twin], "20:15:de:3d:b9:06", "QE43LS03DAU", None) == "media_player.frame_tv"
     assert pick([tv], None, "QE43", None) is None  # too short to trust
+
+
+def test_optimistic_source_is_flagged_and_reverts_on_failure():
+    async def go():
+        tv, ctl = make(dict(source="hdmi3", cec_revert=True))
+        await ctl.async_refresh()
+        events = []
+        ctl.add_listener(lambda: events.append((ctl.source, ctl.source_unconfirmed)))
+        assert not await ctl.async_select_source("Kodi")
+        assert events[0] == ("Kodi", True)          # shown immediately
+        assert events[-1] == ("Apple TV", False)    # reverted to reality
+        assert ctl.source == "Apple TV" and not ctl.source_unconfirmed
+    run(go())
+
+
+def test_turn_on_from_off_shows_on_while_waking():
+    async def go():
+        tv, ctl = make(dict(power=False))
+        seen = []
+        ctl.add_listener(lambda: seen.append(ctl.is_on))
+        await ctl.async_turn_on()
+        assert seen[0] is True and ctl.is_on
+    run(go())
