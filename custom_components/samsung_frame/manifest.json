@@ -3,11 +3,12 @@
   "name": "Samsung Frame",
   "codeowners": ["@andrewgbooth"],
   "config_flow": true,
-  "dependencies": ["smartthings"],
+  "dependencies": ["smartthings", "ssdp"],
   "documentation": "https://github.com/andrewgbooth/ha-samsung-frame",
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/andrewgbooth/ha-samsung-frame/issues",
+  "ssdp": [{"st": "urn:samsung.com:device:RemoteControlReceiver:1"}],
   "requirements": ["samsungtvws[async,encrypted]>=3.0.0", "wakeonlan>=3.1.0"],
   "version": "0.1.0"
 }

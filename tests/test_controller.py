@@ -247,3 +247,20 @@ def test_name_validation():
     # a clashing TV name only matters when TV is enabled
     assert names_are_valid({**NAMES, "tv_name": "Kodi"})
     assert not names_are_valid({**NAMES, "tv_name": "Kodi", "enable_tv": True})
+
+
+def test_discovery_parsing_keeps_only_frames():
+    from custom_components.samsung_frame.discovery import (
+        host_from_location,
+        parse_device_info,
+    )
+
+    frame = {"name": "Master Bedroom", "device": {
+        "FrameTVSupport": "true", "modelName": "QE43LS03DAU",
+        "wifiMac": "20:15:DE:3D:B9:06"}}
+    tv = parse_device_info("10.0.0.5", frame)
+    assert tv.mac == "20:15:de:3d:b9:06" and tv.name == "Master Bedroom"
+    assert parse_device_info("10.0.0.6", {"device": {"FrameTVSupport": "false"}}) is None
+    assert parse_device_info("10.0.0.7", {}) is None
+    assert host_from_location("http://10.0.0.5:9197/dmr") == "10.0.0.5"
+    assert host_from_location(None) is None

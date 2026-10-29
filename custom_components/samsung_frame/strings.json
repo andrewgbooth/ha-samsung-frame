@@ -3,12 +3,9 @@
     "step": {
       "user": {
         "title": "Samsung Frame",
-        "description": "Enter the TV's details and pick its SmartThings media player (used for HDMI input selection and full power off).",
+        "description": "Frames found on your network. Pick one, or enter its address manually.",
         "data": {
-          "name": "Name",
-          "host": "Host / IP address",
-          "mac": "MAC address (optional, enables fast Wake-on-LAN)",
-          "smartthings_entity": "SmartThings media player"
+          "device": "TV"
         }
       },
       "pair": {
@@ -26,6 +23,26 @@
           "tv_name": "TV input name",
           "art_name": "Art Mode name"
         }
+      },
+      "manual": {
+        "title": "Enter the TV manually",
+        "description": "No Frame was found automatically. Enter its IP address; the MAC address is optional and enables fast Wake-on-LAN.",
+        "data": {
+          "host": "Host / IP address",
+          "mac": "MAC address (optional)"
+        }
+      },
+      "confirm": {
+        "title": "Set up {name}?",
+        "description": "A Samsung Frame was found at {host}."
+      },
+      "details": {
+        "title": "Details",
+        "description": "Pick the TV's SmartThings media player (used for HDMI input selection and full power off). TV address: {host}.",
+        "data": {
+          "name": "Name",
+          "smartthings_entity": "SmartThings media player"
+        }
       }
     },
     "error": {
@@ -33,7 +50,8 @@
       "duplicate_names": "Input names must be unique and not empty."
     },
     "abort": {
-      "already_configured": "This TV is already configured."
+      "already_configured": "This TV is already configured.",
+      "not_frame": "That device does not look like a Samsung Frame."
     }
   },
   "options": {
