@@ -264,3 +264,11 @@ def test_discovery_parsing_keeps_only_frames():
     assert parse_device_info("10.0.0.7", {}) is None
     assert host_from_location("http://10.0.0.5:9197/dmr") == "10.0.0.5"
     assert host_from_location(None) is None
+
+
+def test_subnet_candidates():
+    from custom_components.samsung_frame.discovery import subnet_candidates
+
+    hosts = subnet_candidates("10.22.153.7")
+    assert len(hosts) == 253 and "10.22.153.7" not in hosts and "10.22.153.106" in hosts
+    assert subnet_candidates(None) == [] and subnet_candidates("127.0.0.1") == []

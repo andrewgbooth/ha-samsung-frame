@@ -3,7 +3,7 @@
   "name": "Samsung Frame",
   "codeowners": ["@andrewgbooth"],
   "config_flow": true,
-  "dependencies": ["smartthings", "ssdp"],
+  "dependencies": ["smartthings", "ssdp", "zeroconf", "network"],
   "documentation": "https://github.com/andrewgbooth/ha-samsung-frame",
   "integration_type": "device",
   "iot_class": "local_polling",
