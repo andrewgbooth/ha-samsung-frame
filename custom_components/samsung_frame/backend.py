@@ -247,7 +247,9 @@ class HABackend:
             kind = data.get("event")
             if kind == "art_mode_changed":
                 self._set_art(data.get("status") == "on")
-            elif kind == "artmode_status":
+            elif kind in ("artmode_status", "get_artmode_status"):
+                # The TV answers our status request with event "get_artmode_status"
+                # (verified on a QE43LS03D); older firmware used "artmode_status".
                 self._set_art(data.get("value") == "on")
             elif kind == "go_to_standby":
                 self._set_art(None)
