@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Samsung Frame",
+        "description": "Enter the TV's details and pick its SmartThings media player (used for HDMI input selection and full power off).",
+        "data": {
+          "name": "Name",
+          "host": "Host / IP address",
+          "mac": "MAC address (optional, enables fast Wake-on-LAN)",
+          "smartthings_entity": "SmartThings media player"
+        }
+      },
+      "pair": {
+        "title": "Pair with the TV",
+        "description": "Turn the TV on, then select Submit and press Allow on the TV when prompted."
+      },
+      "inputs": {
+        "title": "Inputs",
+        "description": "Name your inputs. TV (tuner) is hidden unless enabled.",
+        "data": {
+          "hdmi1_name": "HDMI 1 name",
+          "hdmi2_name": "HDMI 2 name",
+          "hdmi3_name": "HDMI 3 name",
+          "enable_tv": "Enable TV (tuner) input",
+          "tv_name": "TV input name",
+          "art_name": "Art Mode name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not pair with the TV. Is it on, and did you press Allow?",
+      "duplicate_names": "Input names must be unique and not empty."
+    },
+    "abort": {
+      "already_configured": "This TV is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Inputs",
+        "description": "Rename inputs or enable the TV (tuner) input. Changes apply immediately.",
+        "data": {
+          "hdmi1_name": "HDMI 1 name",
+          "hdmi2_name": "HDMI 2 name",
+          "hdmi3_name": "HDMI 3 name",
+          "enable_tv": "Enable TV (tuner) input",
+          "tv_name": "TV input name",
+          "art_name": "Art Mode name"
+        }
+      }
+    },
+    "error": {
+      "duplicate_names": "Input names must be unique and not empty."
+    }
+  }
+}

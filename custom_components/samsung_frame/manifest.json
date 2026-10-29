@@ -1,0 +1,13 @@
+{
+  "domain": "samsung_frame",
+  "name": "Samsung Frame",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["smartthings"],
+  "documentation": "https://github.com/OWNER/ha-samsung-frame",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/OWNER/ha-samsung-frame/issues",
+  "requirements": ["samsungtvws[async,encrypted]>=3.0.0", "wakeonlan>=3.1.0"],
+  "version": "0.1.0"
+}
