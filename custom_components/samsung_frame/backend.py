@@ -33,7 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 # shows an Allow prompt over and over.
 CLIENT_NAME = "HA Samsung Frame"
 
-BLOCK_SECONDS = 60       # pause local calls after the TV rejects us
+BLOCK_SECONDS = 60       # pause local calls after an unanswered Allow prompt
+MAX_STRIKES = 2          # unanswered prompts in a row before asking to re-pair
 ART_CACHE_SECONDS = 15   # reuse an art-mode result this long unless forced
 ART_MIN_GAP = 2.0        # never open art connections closer together
 ST_MIN_GAP = 3.0         # never force a SmartThings refresh more often
@@ -108,6 +109,7 @@ class HABackend:
         self._on_tokens = on_tokens
         self._on_auth_failed = on_auth_failed
         self._blocked_until = 0.0
+        self._strikes = 0
         self._art_lock = asyncio.Lock()
         self._art_cache: tuple[float, Optional[bool]] = (0.0, None)
         self._last_art_try = 0.0
@@ -144,19 +146,30 @@ class HABackend:
         if time.monotonic() < self._blocked_until:
             raise ConnectionError("TV rejected our token; local calls paused")
 
-    def _block(self) -> None:
-        """Stop knocking after a rejection: each attempt pops an Allow prompt."""
-        if time.monotonic() >= self._blocked_until:
-            if self._on_auth_failed is not None:
-                self._hass.loop.call_soon_threadsafe(self._on_auth_failed)
-            _LOGGER.warning(
-                "The TV did not accept Home Assistant's saved permission. Local "
-                "control is paused for %d s to avoid repeated Allow prompts. Use "
-                "the Repair notification to pair again, and on the TV check "
-                "Settings > General > External Device Manager > Device Connection "
-                "Manager that 'HA Samsung Frame' is allowed.",
-                BLOCK_SECONDS,
-            )
+    def _block(self, rejected: bool = False) -> None:
+        """Stop knocking: each attempt pops an Allow prompt on the TV.
+
+        An unanswered prompt (timeOut) only pauses local calls briefly. We ask
+        for re-pairing only when the TV explicitly rejects us, or after
+        repeated unanswered prompts, and then stay silent until the entry is
+        reloaded so a re-pair is not disturbed by our own polling.
+        """
+        self._strikes += 1
+        if rejected or self._strikes >= MAX_STRIKES:
+            if self._blocked_until != float("inf"):
+                _LOGGER.warning(
+                    "The TV is not accepting Home Assistant's saved permission. "
+                    "Local control stays off until you re-pair (see the Repair "
+                    "notification). On the TV, check Settings > General > "
+                    "External Device Manager > Device Connection Manager that "
+                    "'%s' is allowed.",
+                    CLIENT_NAME,
+                )
+                if self._on_auth_failed is not None:
+                    self._hass.loop.call_soon_threadsafe(self._on_auth_failed)
+            self._blocked_until = float("inf")
+            return
+        _LOGGER.debug("TV did not answer the Allow prompt (%d)", self._strikes)
         self._blocked_until = time.monotonic() + BLOCK_SECONDS
 
     def _remember(self, remote_tok: Optional[str] = None, art_tok: Optional[str] = None) -> None:
@@ -208,14 +221,17 @@ class HABackend:
         art = _art_client(self._host, self._tokens.art, 5)
         try:
             result = str(art.get_artmode()).lower() == "on"
+            self._strikes = 0
             self._remember(art_tok=getattr(art, "token", None))
             return result
         except UnauthorizedError:
-            self._block()
+            self._block(rejected=True)
             return None
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Art mode query failed", exc_info=True)
-            if "timeOut" in str(err) or "unauthorized" in str(err).lower():
+            if "unauthorized" in str(err).lower():
+                self._block(rejected=True)
+            elif "timeOut" in str(err):
                 self._block()  # the TV is showing an Allow prompt
             return None
         finally:
@@ -312,13 +328,14 @@ class HABackend:
         async def _send() -> None:
             await remote.start_listening()
             await remote.send_command(SendRemoteKey.click(key))
+            self._strikes = 0
             self._remember(remote_tok=getattr(remote, "token", None))
 
         try:
             await asyncio.wait_for(_send(), CALL_TIMEOUT)
             self._art_cache = (0.0, None)  # a key press may change Art mode
         except UnauthorizedError:
-            self._block()
+            self._block(rejected=True)
             raise
         except Exception as err:
             if "timeOut" in str(err):
