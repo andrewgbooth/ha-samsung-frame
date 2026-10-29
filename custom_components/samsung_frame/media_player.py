@@ -39,7 +39,7 @@ async def async_setup_entry(
     )
 
 
-def _smartthings_device(hass: HomeAssistant, entity_id: str) -> tuple[str, str] | None:
+def _smartthings_device(hass: HomeAssistant, entity_id: str) -> str | None:
     """The SmartThings device this TV is paired with, to link the two devices."""
     entity = er.async_get(hass).async_get(entity_id)
     if entity is None or entity.device_id is None:
@@ -47,7 +47,7 @@ def _smartthings_device(hass: HomeAssistant, entity_id: str) -> tuple[str, str] 
     device = dr.async_get(hass).async_get(entity.device_id)
     if device is None:
         return None
-    return next((i for i in device.identifiers if i[0] == "smartthings"), None)
+    return device.id
 
 
 class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
@@ -61,7 +61,7 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
     )
 
     def __init__(
-        self, entry: FrameConfigEntry, smartthings_device: tuple[str, str] | None
+        self, entry: FrameConfigEntry, smartthings_device: str | None
     ) -> None:
         super().__init__(entry.runtime_data.coordinator)
         self._ctl = entry.runtime_data.controller
@@ -75,7 +75,7 @@ class FrameMediaPlayer(CoordinatorEntity, MediaPlayerEntity, RestoreEntity):
                 {("mac", entry.data[CONF_MAC])} if entry.data.get(CONF_MAC) else set()
             ),
             configuration_url=f"http://{entry.data[CONF_HOST]}",
-            via_device=smartthings_device,
+            via_device_id=smartthings_device,
         )
 
     async def async_added_to_hass(self) -> None:
