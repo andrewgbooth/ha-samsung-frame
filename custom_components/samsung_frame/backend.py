@@ -8,10 +8,12 @@ The local Tizen API has no verified way to pick a specific HDMI input or to
 power fully off on this model (KEY_HDMI1-3 do nothing, KEY_POWER toggles Art
 mode), which is why SmartThings is still used for those two things.
 
-Art mode: one persistent, token-less connection to the art channel. The TV
-pushes `art_mode_changed` events, so there is no polling, no repeated Allow
-prompts and Art mode changes show up instantly. (Passing a token to this
-channel makes the TV answer `ms.channel.timeOut` and show Allow prompts.)
+Connections: one persistent, token-authenticated remote channel (also used to
+send keys), and, only while that is up, one token-less art channel on which
+the TV pushes `art_mode_changed` events. The TV closes the art channel with
+`ms.channel.timeOut` unless the remote channel of the same client is
+connected, and passing a token to the art channel makes it prompt Allow.
+So: no polling, no repeated Allow prompts, instant Art mode changes.
 """
 
 from __future__ import annotations
@@ -92,20 +94,73 @@ class HABackend:
         self._art: Optional[bool] = None
         self._art_task: Optional[asyncio.Task] = None
         self._art_kick = asyncio.Event()
+        self._remote_task: Optional[asyncio.Task] = None
+        self._remote = None
+        self._remote_ready = asyncio.Event()
 
     # ----- lifecycle --------------------------------------------------
 
     def start(self) -> Callable[[], None]:
-        """Start the art channel listener; returns a function that stops it."""
+        """Start the remote and art channel listeners; returns a stop function."""
+        self._remote_task = self._hass.async_create_background_task(
+            self._remote_loop(), "samsung_frame remote channel"
+        )
         self._art_task = self._hass.async_create_background_task(
             self._art_loop(), "samsung_frame art channel"
         )
         return self.stop
 
     def stop(self) -> None:
-        if self._art_task is not None:
-            self._art_task.cancel()
-            self._art_task = None
+        for task in (self._art_task, self._remote_task):
+            if task is not None:
+                task.cancel()
+        self._art_task = self._remote_task = None
+
+    # ----- remote channel (persistent) --------------------------------
+
+    async def _remote_loop(self) -> None:
+        """Hold the remote channel open while the TV is awake.
+
+        The art channel only works while this is connected, and keys are
+        sent over it without reconnecting.
+        """
+        from samsungtvws.async_remote import SamsungTVWSAsyncRemote
+        from samsungtvws.exceptions import UnauthorizedError
+
+        while True:
+            if time.monotonic() < self._blocked_until or not await self._local_power():
+                await asyncio.sleep(5)  # TV asleep, or we must not knock
+                continue
+            remote = SamsungTVWSAsyncRemote(
+                host=self._host, port=PORT, token=self._token,
+                name=CLIENT_NAME, timeout=10,
+            )
+            try:
+                await remote.start_listening()
+                self._strikes = 0
+                self._remember(getattr(remote, "token", None))
+                self._remote = remote
+                self._remote_ready.set()
+                _LOGGER.debug("Remote channel connected")
+                while remote.is_alive():
+                    await asyncio.sleep(2)
+                _LOGGER.debug("Remote channel closed")
+            except asyncio.CancelledError:
+                raise
+            except UnauthorizedError:
+                self._block(rejected=True)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Remote channel failed: %s", err)
+                if "timeOut" in str(err):
+                    self._block()
+            finally:
+                self._remote_ready.clear()
+                self._remote = None
+                try:
+                    await asyncio.wait_for(remote.close(), 5)
+                except Exception:  # noqa: BLE001
+                    pass
+            await asyncio.sleep(3)
 
     # ----- art channel (persistent, push events) ----------------------
 
@@ -127,6 +182,7 @@ class HABackend:
         ssl_ctx = await self._hass.async_add_executor_job(get_ssl_context)
         delay = 3.0
         while True:
+            await self._remote_ready.wait()  # art only works beside the remote
             try:
                 async with connect(
                     url, ssl=ssl_ctx, open_timeout=5, ping_interval=None, max_size=None
@@ -336,6 +392,13 @@ class HABackend:
         from samsungtvws.async_remote import SamsungTVWSAsyncRemote
         from samsungtvws.exceptions import UnauthorizedError
         from samsungtvws.remote import SendRemoteKey
+
+        live = self._remote
+        if live is not None and live.is_alive():
+            await asyncio.wait_for(
+                live.send_command(SendRemoteKey.click(key)), CALL_TIMEOUT
+            )
+            return
 
         self._check_not_blocked()
         remote = SamsungTVWSAsyncRemote(

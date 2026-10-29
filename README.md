@@ -57,7 +57,7 @@ Where possible everything runs locally for speed.
 
 | Task | Method |
 |---|---|
-| Detect Art Mode | Local, pushed by the TV over one persistent connection (instant, no polling) |
+| Detect Art Mode | Local, pushed by the TV over a persistent connection (instant, no polling) |
 | Wake from Art Mode | Local power key |
 | Know if the TV is on | Local status check, plus SmartThings |
 | Wake from fully off | Wake-on-LAN (if you gave a MAC), then the power key, then SmartThings |
