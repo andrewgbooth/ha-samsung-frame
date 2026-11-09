@@ -70,6 +70,10 @@ class Timings:
     # keys until it has finished waking (its wakeup event arrives ~6 s after
     # power-on) and reports a stale Art mode "on" while in standby.
     wake_delay: float = 10.0
+    # After that pause, wait for a fresh Art mode reading (the backend forgets
+    # the stale one at power-on): poll every status_poll up to status_timeout.
+    status_poll: float = 5.0
+    status_timeout: float = 60.0
     art_timeout: float = 15.0
     art_settle: float = 1.5
     wake_settle: float = 2.0
@@ -272,7 +276,10 @@ class FrameController:
             _LOGGER.debug("Resync failed", exc_info=True)
 
     async def _wait(
-        self, predicate: Callable[[Snapshot], bool], timeout: float
+        self,
+        predicate: Callable[[Snapshot], bool],
+        timeout: float,
+        poll: Optional[float] = None,
     ) -> Optional[Snapshot]:
         deadline = self._monotonic() + timeout
         while True:
@@ -281,7 +288,7 @@ class FrameController:
                 return snap
             if self._monotonic() >= deadline:
                 return None
-            await self._sleep(self._t.poll)
+            await self._sleep(self._t.poll if poll is None else poll)
 
     async def _switch(self, target: TvInput) -> bool:
         snap = await self._backend.snapshot(refresh=True)
@@ -292,6 +299,14 @@ class FrameController:
                 _LOGGER.warning("TV did not power on")
                 return False
             await self._sleep(self._t.wake_delay)
+            # Art mode may read "on" briefly while booting; only act on a
+            # reading taken after the TV has settled. Best effort: if it never
+            # arrives, _to_art refuses to press power blindly.
+            await self._wait(
+                lambda s: s.art is not None,
+                self._t.status_timeout,
+                self._t.status_poll,
+            )
             snap = await self._backend.snapshot(refresh=True)
         if target.kind == KIND_ART:
             return await self._to_art(snap)

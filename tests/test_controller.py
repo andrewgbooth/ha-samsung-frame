@@ -37,13 +37,14 @@ class FakeTV:
 
     def __init__(self, clock, power=True, art=False, source="hdmi3",
                  boot_art=False, cec_revert=False, art_known=True,
-                 ignore_keys=0):
+                 ignore_keys=0, art_report_delay=0.0):
         self.clock = clock
         self.power, self.art, self.source = power, art, source
         self.boot_art, self.cec_revert, self.art_known = boot_art, cec_revert, art_known
         self.echo = None
         self.echo_until = 0.0
         self.keys = []
+        self.art_report_delay, self.art_ready_at = art_report_delay, 0.0
         self.ignore_keys = ignore_keys  # power keys lost while the TV wakes
 
     async def snapshot(self, refresh=False):
@@ -51,10 +52,13 @@ class FakeTV:
         if self.clock.now < self.echo_until and self.echo:
             src = self.echo
         art = (self.art if self.art_known else None) if self.power else False
+        if self.power and self.clock.now < self.art_ready_at:
+            art = None  # backend forgets the stale reading at power-on
         return Snapshot(self.power, art, src if self.power else None)
 
     async def power_on(self):
         self.clock.log.append(("power_on",))
+        self.art_ready_at = self.clock.now + self.art_report_delay
         self.power, self.art = True, self.boot_art
 
     async def power_off(self):
@@ -149,6 +153,29 @@ def test_wake_key_not_repeated_when_art_state_unknown():
         tv.send_key = send
         assert not await ctl.async_select_source("Kodi")
         assert tv.keys == ["KEY_POWER"]  # never pressed blindly again
+    run(go())
+
+
+def test_art_from_off_waits_for_fresh_status_then_presses_once():
+    async def go():
+        tv, ctl = make(dict(power=False, boot_art=False, art_report_delay=25.0))
+        assert await ctl.async_select_source("Art Mode")
+        assert tv.art
+        assert tv.keys == ["KEY_POWER"]
+        log = ctl.clock.log
+        # no key until the fresh reading (after wake_delay + polling)
+        assert sum(x[1] for x in log[: log.index(("key", "KEY_POWER"))]
+                   if x[0] == "sleep") >= 25.0
+    run(go())
+
+
+def test_art_from_off_status_never_arrives_presses_nothing():
+    async def go():
+        tv, ctl = make(dict(power=False, art_report_delay=1000.0))
+        assert not await ctl.async_select_source("Art Mode")
+        assert tv.keys == []
+        waited = sum(x[1] for x in ctl.clock.log if x[0] == "sleep")
+        assert waited <= Timings().wake_delay + Timings().status_timeout + 10
     run(go())
 
 

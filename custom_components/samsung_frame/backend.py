@@ -381,6 +381,9 @@ class HABackend:
         The power key only toggles Art mode on a TV that is already awake,
         so it is sent only when the TV is reachable and reports standby.
         """
+        # Whatever Art mode reading we hold is from before standby and is
+        # stale; forget it so only a fresh reading from the TV is trusted.
+        self._set_art(None)
         if await self._local_power():
             return
         if self._mac:
